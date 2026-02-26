@@ -2,12 +2,12 @@ class AppConstants {
   // ─── Google Cloud STT V2 ───────────────────────────────────────────────────
   // Create a restricted API key in Google Cloud Console → APIs & Services → Credentials
   // Restrict to: Cloud Speech-to-Text API only
-  static const String googleCloudApiKey = 'YOUR_GOOGLE_CLOUD_API_KEY';
-  static const String googleCloudProjectId = 'YOUR_GCP_PROJECT_ID';
+  static const String googleCloudApiKey = 'AIzaSyBXRGXzOgMz9qNVtJ5zWFktzVik-3-btPg';
+  static const String googleCloudProjectId = 'mayashield-c8c07';
 
   // Chirp 3 is GA in "us" and "eu". Use "asia-southeast1" for lower latency
   // (Preview status -- may have lower reliability).
-  static const String sttRegion = 'us';
+  static const String sttRegion = 'asia-southeast1';
 
   // ─── STT Endpoint ─────────────────────────────────────────────────────────
   static String get sttEndpoint =>

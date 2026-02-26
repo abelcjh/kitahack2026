@@ -101,7 +101,7 @@ static const String googleCloudProjectId = 'YOUR_GCP_PROJECT_ID';
 3. Choose a region (recommended: `asia-southeast1` for Malaysia).
 4. Apply the security rules from the [Firestore Security Rules](#firestore-security-rules) section below.
 
-### Step 6: Run FlutterFire CLI to generate firebase_options.dart
+### Step 6: Run FlutterFire CLI in terminal to generate firebase_options.dart
 
 ```bash
 dart pub global activate flutterfire_cli
@@ -134,7 +134,7 @@ This generates `lib/firebase_options.dart`. The app imports this file in `main.d
 
 The app sends `POST` requests to:
 ```
-https://us-central1-speech.googleapis.com/v2/projects/{PROJECT_ID}/locations/us-central1/recognizers/_:recognize?key={API_KEY}
+https://asia-southeast1-speech.googleapis.com/v2/projects/{PROJECT_ID}/locations/asia-southeast-1/recognizers/_:recognize?key={API_KEY}
 ```
 
 > **Note**: Chirp 3 is GA in `us` and `eu` multi-regions. `asia-southeast1` is in Preview.

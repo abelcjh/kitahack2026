@@ -1,0 +1,31 @@
+{
+    "flutter":{
+        "platforms":{
+            "android":{
+                "default":{
+                    "projectId":"mayashield-c8c07",
+                    "appId":"1:777280942306:android:f5148b7ffb0c53c3772ebb",
+                    "fileOutput":"android/app/google-services.json"
+                    }
+                },
+
+            "ios":{
+                "default":{
+                    "projectId":"mayashield-c8c07",
+                    "appId":"1:777280942306:ios:5882fc6054f122b2772ebb",
+                    "fileOutput": "ios/Runner/GoogleService-Info.plist"
+                }
+            },
+
+            "dart":{
+                "lib/firebase_options.dart":{
+                    "projectId":"mayashield-c8c07",
+                    "configurations":{
+                        "android":"1:777280942306:android:f5148b7ffb0c53c3772ebb",
+                        "ios":"1:777280942306:ios:5882fc6054f122b2772ebb"
+                    }
+                }
+            }
+        }
+    }
+}

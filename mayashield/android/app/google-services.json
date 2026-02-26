@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "777280942306",
+    "project_id": "mayashield-c8c07",
+    "storage_bucket": "mayashield-c8c07.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:777280942306:android:f5148b7ffb0c53c3772ebb",
+        "android_client_info": {
+          "package_name": "com.mayashield.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCtvNgeAfgCNLPv102rM4p6Dm9bnGUGMFs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
