@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'firebase_options.dart';
 import 'services/auth_service.dart';
 import 'services/scam_number_service.dart';
 import 'app.dart';
@@ -16,7 +17,9 @@ void main() async {
   // Initialize Firebase
   // Replace with: options: DefaultFirebaseOptions.currentPlatform
   // after running flutterfire configure
-  await Firebase.initializeApp();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform
+  );
 
   // Sign in anonymously so Firestore/Firebase AI rules can apply
   final authService = AuthService();

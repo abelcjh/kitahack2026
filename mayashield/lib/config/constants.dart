@@ -1,9 +1,7 @@
 class AppConstants {
   // ─── Google Cloud STT V2 ───────────────────────────────────────────────────
-  // Create a restricted API key in Google Cloud Console → APIs & Services → Credentials
-  // Restrict to: Cloud Speech-to-Text API only
-  static const String googleCloudApiKey = 'AIzaSyBXRGXzOgMz9qNVtJ5zWFktzVik-3-btPg';
-  static const String googleCloudProjectId = 'mayashield-c8c07';
+  // Note: STT V2 (Chirp 3) authenticates via the Service Account JSON in /assets
+  static const String googleCloudProjectId = 'GCP_PROJECT_ID';
 
   // Chirp 3 is GA in "us" and "eu". Use "asia-southeast1" for lower latency
   // (Preview status -- may have lower reliability).
@@ -14,8 +12,7 @@ class AppConstants {
       'https://$sttRegion-speech.googleapis.com/v2'
       '/projects/$googleCloudProjectId'
       '/locations/$sttRegion'
-      '/recognizers/_:recognize'
-      '?key=$googleCloudApiKey';
+      '/recognizers/_:recognize';
 
   // ─── Gemini model via firebase_ai ─────────────────────────────────────────
   // firebase_vertexai is deprecated -- use firebase_ai

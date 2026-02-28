@@ -58,13 +58,18 @@
 
         <!-- Call Screening Service (must be exported + correct permission) -->
         <service
-            android:name=".services.MayaCallScreeningService"
+            android:name=".MayaCallScreeningService"
             android:permission="android.permission.BIND_SCREENING_SERVICE"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.telecom.CallScreeningService" />
             </intent-filter>
         </service>
+
+        <service 
+            android:name=".MayaAudioService"
+            android:foregroundServiceType="microphone"
+            android:exported="false" />
         
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->

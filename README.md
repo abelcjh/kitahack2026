@@ -2,7 +2,7 @@
 
 **Real-Time Anti-Voice Scam Detector | KitaHack 2026 | SDG 16**
 
-MayaShield is an Android-primary Flutter app that automatically screens incoming phone calls from unsaved numbers, transcribes audio in real-time using Google Chirp 3 (Speech-to-Text V2), and analyzes the conversation with Gemini 2.5 Flash to detect Malaysian voice scam patterns -- **during the call**, not after. Confirmed scam numbers are shared across all MayaShield users via a community Firestore database.
+MayaShield is an Android-primary Flutter app that automatically screens incoming phone calls from unsaved numbers, transcribes audio in real-time using Google Chirp 3 (Speech-to-Text V2), and analyzes the conversation with Gemini 2.5 Flash to detect Malaysian voice scam patterns -- **during the call**, not after, and alerts the user to take appropriate action immediately. Confirmed scam numbers are shared across all MayaShield users via a community Firestore database.
 
 ---
 
@@ -14,7 +14,7 @@ MayaShield is an Android-primary Flutter app that automatically screens incoming
 4. [Google Cloud Speech-to-Text V2 Setup](#google-cloud-speech-to-text-v2-setup)
 5. [Firebase AI Logic (Gemini) Setup](#firebase-ai-logic-gemini-setup)
 6. [Android Permissions Setup](#android-permissions-setup)
-7. [Running the App](#running-the-app)
+7. [Testing & Running the App (Demo Guide)](#testing--running-the-app-demo-guide)
 8. [Firestore Security Rules](#firestore-security-rules)
 9. [Known Limitations](#known-limitations)
 
@@ -24,39 +24,37 @@ MayaShield is an Android-primary Flutter app that automatically screens incoming
 
 Three layers of protection:
 
-```
+```text
 Incoming Call
      |
      v
 [1] Is number saved in contacts?
      YES -> Allow normally (no action)
      NO  -> Check community scam_numbers cache (local, <1ms)
-               KNOWN SCAM -> Auto-reject + Show overlay alert
-               UNKNOWN    -> Allow call + Start recording
+                KNOWN SCAM -> Auto-reject + Show overlay alert
+                UNKNOWN    -> Allow call + Start recording
                                 |
                          Every 15 seconds:
                          Audio chunk -> Chirp 3 STT -> Append to transcript
-                                             -> Gemini 2.5 Flash (full context)
-                                                   SCAM -> Show mid-call overlay
-                                                         + Auto-report to Firestore
-                                                         + Add to community DB
-                                                         + Prompt: End Call / Call PDRM
-                                                   SAFE -> Continue listening
+                                                    -> Gemini 2.5 Flash (full context)
+                                                          SCAM -> Show mid-call overlay
+                                                                 + Auto-report to Firestore
+                                                                 + Add to community DB
+                                                                 + Prompt: End Call / Call PDRM
+                                                          SAFE -> Continue listening
                          Call ends:
                               SCAM -> Show result screen, keep data
                               SAFE -> Delete all data, store nothing
-```
+```                              
 
 ---
 
 ## API Setup and Configuration
 
-### Step 1: Copy and fill in your credentials
-
-Open `mayashield/lib/config/constants.dart` and replace all placeholder values:
+### Step 1: Base Configuration
+Open `mayashield/lib/config/constants.dart` and replace the placeholder value for your GCP project ID:
 
 ```dart
-static const String googleCloudApiKey = 'YOUR_GOOGLE_CLOUD_API_KEY';
 static const String googleCloudProjectId = 'YOUR_GCP_PROJECT_ID';
 ```
 
@@ -65,44 +63,18 @@ static const String googleCloudProjectId = 'YOUR_GCP_PROJECT_ID';
 ## Firebase Setup
 
 ### Step 1: Create a Firebase project
-
 1. Go to [https://console.firebase.google.com](https://console.firebase.google.com)
 2. Click **Add project** and follow the steps.
 3. Enable **Google Analytics** (optional).
 
-### Step 2: Register your Android app
+### Step 2: Enable Core Services
+1. **Authentication**: In Firebase Console -> **Build** -> **Authentication**, enable **Anonymous** sign-in.
+2. **Firestore**: In **Build** -> **Firestore Database**, create a database in **production mode** (Recommended Region: `asia-southeast1`). Apply the rules from Section 8.
 
-1. In Firebase Console, click **Add app** -> **Android**.
-2. Set package name: `com.mayashield.app`
-3. Download `google-services.json` and place it at:
-   ```
-   mayashield/android/app/google-services.json
-   ```
+### Step 3: Run FlutterFire CLI (Auto-Setup)
+The FlutterFire CLI automatically registers your Android app, downloads the required configuration file (`google-services.json`), and links it to your project.
 
-### Step 3: Register your iOS app (for iOS fallback)
-
-1. Click **Add app** -> **iOS**.
-2. Set bundle ID: `com.mayashield.app`
-3. Download `GoogleService-Info.plist` and place it at:
-   ```
-   mayashield/ios/Runner/GoogleService-Info.plist
-   ```
-
-### Step 4: Enable Firebase Authentication
-
-1. In Firebase Console -> **Build** -> **Authentication** -> **Get started**.
-2. Click **Sign-in method** tab.
-3. Enable **Anonymous** sign-in.
-
-### Step 5: Enable Cloud Firestore
-
-1. In Firebase Console -> **Build** -> **Firestore Database** -> **Create database**.
-2. Start in **production mode**.
-3. Choose a region (recommended: `asia-southeast1` for Malaysia).
-4. Apply the security rules from the [Firestore Security Rules](#firestore-security-rules) section below.
-
-### Step 6: Run FlutterFire CLI in terminal to generate firebase_options.dart
-
+Run these commands in your terminal at the root of the project:
 ```bash
 dart pub global activate flutterfire_cli
 flutterfire configure --project=YOUR_FIREBASE_PROJECT_ID
@@ -114,36 +86,23 @@ This generates `lib/firebase_options.dart`. The app imports this file in `main.d
 
 ## Google Cloud Speech-to-Text V2 Setup
 
-### Step 1: Enable the API
+**⚠️ IMPORTANT: STT V2 (Chirp) requires a Service Account. Standard API keys will return a 403 Forbidden error.**
 
-1. Go to [https://console.cloud.google.com](https://console.cloud.google.com).
-2. Select your Firebase project (they share the same GCP project).
-3. Navigate to **APIs & Services** -> **Library**.
-4. Search for **Cloud Speech-to-Text API** and click **Enable**.
+### Step 1: Create a Service Account
+1. Go to Google Cloud Console -> **IAM & Admin** -> **Service Accounts**.
+2. Click **Create Service Account** (e.g., `chirp-audio-bot`).
+3. Grant it the **Cloud Speech Administrator** role.
+4. Click on the new service account -> **Keys** -> **Add Key** -> **Create New Key** -> **JSON**.
 
-### Step 2: Create an API key
-
-1. Go to **APIs & Services** -> **Credentials** -> **Create credentials** -> **API key**.
-2. Click **Restrict key**:
-   - Under **API restrictions**, select **Restrict key**.
-   - Choose **Cloud Speech-to-Text API** only.
-   - Under **Application restrictions**, optionally restrict to Android (package: `com.mayashield.app`).
-3. Copy the key into `constants.dart` as `googleCloudApiKey`.
-
-### Step 3: Understand the Chirp 3 endpoint
-
-The app sends `POST` requests to:
-```
-https://asia-southeast1-speech.googleapis.com/v2/projects/{PROJECT_ID}/locations/asia-southeast-1/recognizers/_:recognize?key={API_KEY}
-```
-
-> **Note**: Chirp 3 is GA in `us` and `eu` multi-regions. `asia-southeast1` is in Preview.
-> To use the closer region, update `sttRegion` in `constants.dart` to `asia-southeast1`
-> and the endpoint host to `asia-southeast1-speech.googleapis.com`.
-
-> **Malay language**: `ms-MY` is supported in Preview for Chirp 3. If transcription quality
-> is poor, set `languageCodes` to `["auto"]` for language-agnostic detection.
-
+### Step 2: Inject the JSON Key
+1. Rename the downloaded file (e.g., `service-account.json`) and place it inside your Flutter project at `mayashield/assets/service-account.json`.
+2. Declare it in your `pubspec.yaml`:
+   ```yaml
+   flutter:
+     assets:
+       - assets/service-account.json
+  ```
+  
 ---
 
 ## Firebase AI Logic (Gemini) Setup
@@ -164,43 +123,53 @@ It uses `FirebaseAI.googleAI()` with anonymous auth -- no separate Gemini API ke
 
 ## Android Permissions Setup
 
-The following permissions require user grant flows:
+The following permissions are required for the app to function:
 
 | Permission | When requested | Why |
 |---|---|---|
 | `RECORD_AUDIO` | First launch | Record call audio |
 | `READ_CONTACTS` | First launch | Check if caller is saved |
 | `READ_PHONE_STATE` | First launch | Detect call state changes |
-| `POST_NOTIFICATIONS` | First launch (Android 13+) | Show recording notification |
-| `SYSTEM_ALERT_WINDOW` | First launch | Show scam overlay during calls |
+| `POST_NOTIFICATIONS` | First launch (Android 13+) | Show active background listening notification |
+| `SYSTEM_ALERT_WINDOW` | Manual UI toggle | Show scam overlay during calls |
 | `CALL_PHONE` | On PDRM dial | Dial PDRM directly |
-| Call Screening Role | First launch | Auto-screen incoming calls |
+| `FOREGROUND_SERVICE` | Install time | Keep audio service alive in background |
+| `FOREGROUND_SERVICE_MICROPHONE` | Install time | Access microphone while app is minimized |
+| Call Screening Role | Manual UI toggle | Auto-screen incoming calls |
 
 ### Granting the Call Screening Role
 
-Android requires the user to manually grant MayaShield the **call screening role**:
-1. The app shows a prompt on first launch.
-2. Tap **Set as call screener** -> follow the system dialog.
-3. Only ONE app can hold this role at a time (replaces other call screeners).
+Android requires the user to manually grant MayaShield the **call screening role** to intercept calls:
+1. On the app's home screen, locate the Service Status card.
+2. Tap the **Enable** button next to Call Screening.
+3. Select **MayaShield** as the default Caller ID & Spam app when the Android system dialog appears.
+4. *(Note: Only ONE app can hold this role at a time, so this replaces apps like Truecaller).*
 
-### Granting Overlay Permission
+### Granting Overlay Permission (`SYSTEM_ALERT_WINDOW`)
 
-1. The app shows a prompt on first launch.
-2. Tap **Open Settings** -> toggle **Allow display over other apps** for MayaShield.
+Because MayaShield draws warnings over the native phone dialer, it requires system-level overlay rights:
+1. On the app's home screen, tap the **Enable** button next to Alert Overlay.
+2. This will automatically route you to Android Settings.
+3. Find MayaShield in the list and toggle **Allow display over other apps**.
+4. Return to the app and tap the top-right refresh icon to verify the green checkmark.
 
 ---
 
-## Running the App
+## Testing & Running the App (Demo Guide)
 
+**🚨 DO NOT USE AN EMULATOR.** Call screening and native microphone services will fail or behave unpredictably on virtual devices. 
+**🚨 DO NOT BUILD AN APK FOR TESTING.** Use development mode for live debugging.
+
+### Step 1: Connect a Physical Device
+1. Enable **Developer Options** and **USB Debugging** on a physical Android 10+ phone.
+2. Connect it to your laptop via USB.
+3. Verify connection by running `flutter devices` in your terminal.
+
+### Step 2: Run the App
 ```bash
 cd mayashield
 flutter pub get
-flutter run --debug
-```
-
-For release build:
-```bash
-flutter build apk --release
+flutter run
 ```
 
 ---
@@ -241,8 +210,7 @@ service cloud.firestore {
 | Limitation | Details |
 |---|---|
 | Call audio (Android 10+) | `AudioSource.MIC` captures the user's microphone only. Caller's audio is captured only on speakerphone. `AudioSource.VOICE_CALL` (both sides) requires `CAPTURE_AUDIO_OUTPUT`, a system-only permission unavailable to third-party apps since Android 10. |
-| iOS | Apple blocks all call interception. iOS users get manual Record/Upload fallback. |
 | Scam DB sync latency | New scam numbers take up to 30 minutes to propagate to other users' local caches. |
 | Auto-end call | `TelecomManager.endCall()` is deprecated since API 28 but functional on most devices. |
-| API key security | For the prototype, the GCP API key is stored in `constants.dart`. In production, proxy through a Firebase Cloud Function. |
+| Credential security | For the prototype, the GCP Service Account JSON is stored locally in the `assets/` folder. In a production environment, STT calls must be proxied through a secure backend (like Firebase Cloud Functions) to prevent credential extraction. |
 | Chirp 3 ms-MY | Malay language support is in Preview. Fall back to `"auto"` if accuracy is poor. |

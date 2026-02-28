@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:permission_handler/permission_handler.dart';
 import '../models/analysis_result.dart';
 import 'scam_detection_service.dart';
 import 'scam_number_service.dart';
@@ -206,17 +207,15 @@ class CallService {
   // ── Permission helpers ─────────────────────────────────────────────────────
 
   Future<bool> hasOverlayPermission() async {
-    try {
-      return await _methodChannel.invokeMethod<bool>('hasOverlayPermission') ?? false;
-    } catch (_) {
-      return false;
-    }
+    return await Permission.systemAlertWindow.isGranted;
   }
 
   Future<void> requestOverlayPermission() async {
-    try {
-      await _methodChannel.invokeMethod('requestOverlayPermission');
-    } catch (_) {}
+    final status = await Permission.systemAlertWindow.status;
+    if (!status.isGranted) {
+      // This physically opens the "Draw over other apps" Android settings screen
+      await Permission.systemAlertWindow.request();
+    }
   }
 
   Future<bool> isCallScreeningActive() async {
