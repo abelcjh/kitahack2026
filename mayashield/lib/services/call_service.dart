@@ -175,14 +175,18 @@ class CallService {
           }
         }
       } else {
+        // If Google returns empty string but no error
+        print("⚠️ STT SUCCESS, BUT TRANSCRIPT WAS EMPTY.");
         _push(CallAnalysisState.listening);
       }
-    } catch (_) {
+    } catch (e, stacktrace) {
+      // 🚨 WE UN-SILENCED THE ERROR!
+      print("🚨 STT CRASHED: $e");
+      print(stacktrace);
       _push(CallAnalysisState.listening);
     } finally {
       _processingChunk = false;
     }
-  }
 
   void _onCallEnded() {
     if (!_scamDetectedDuringCall) {
