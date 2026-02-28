@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -62,6 +63,8 @@ class CallService {
   bool _scamDetectedDuringCall = false;
   int _chunkIndex = 0;
   bool _processingChunk = false;
+  bool _callActive = false;
+  final Queue<Uint8List> _pendingChunks = Queue<Uint8List>();
 
   final _updateController = StreamController<CallAnalysisUpdate>.broadcast();
   Stream<CallAnalysisUpdate> get stream => _updateController.stream;
@@ -103,11 +106,11 @@ class CallService {
         break;
       case 'audioChunk':
         final data = event['data'];
-        if (data is Uint8List) _onAudioChunk(data);
+        if (data is Uint8List) _enqueueChunk(data);
         break;
       case 'callEnded':
         final data = event['data'];
-        if (data is Uint8List) _onAudioChunk(data, isFinalChunk: true);
+        if (data is Uint8List) _enqueueChunk(data);
         _onCallEnded();
         break;
     }
@@ -118,29 +121,37 @@ class CallService {
     _currentCallerNumber = callerNumber;
     _scamDetectedDuringCall = false;
     _chunkIndex = 0;
+    _processingChunk = false;
+    _callActive = true;
+    _pendingChunks.clear();
     _push(CallAnalysisState.callStarted);
   }
 
-  Future<void> _onAudioChunk(
-    Uint8List wavBytes, {
-    bool isFinalChunk = false,
-  }) async {
-    if (_processingChunk && !isFinalChunk) return;
+  // ── Audio chunk queue ─────────────────────────────────────────────────────
+  void _enqueueChunk(Uint8List wavBytes) {
+    if (!_callActive) return;
+
+    if (_processingChunk) {
+      _pendingChunks.addLast(wavBytes);
+    } else {
+      _processChunk(wavBytes);
+    }
+  }
+
+  Future<void> _processChunk(Uint8List wavBytes) async {
+    if (!_callActive) return;
     _processingChunk = true;
 
     _chunkIndex++;
     _push(CallAnalysisState.transcribing);
 
     try {
-      // 1. Transcribe this chunk
       final chunkTranscript = await _stt.transcribeAudio(wavBytes);
 
       if (chunkTranscript.isNotEmpty) {
-        // 2. Append to full context
         _accumulatedTranscript = '$_accumulatedTranscript $chunkTranscript'.trim();
         _push(CallAnalysisState.analyzing);
 
-        // 3. Analyze transcript
         if (!_scamDetectedDuringCall) {
           final result = await _gemini.analyzeTranscript(_accumulatedTranscript);
 
@@ -168,25 +179,36 @@ class CallService {
           }
         }
       } else {
-        print("⚠️ STT SUCCESS, BUT TRANSCRIPT WAS EMPTY.");
         _push(CallAnalysisState.listening);
       }
     } catch (e, stacktrace) {
-      // 🚨 WE UN-SILENCED THE ERROR!
-      print("🚨 STT CRASHED: $e");
+      print("STT error: $e");
       print(stacktrace);
       _push(CallAnalysisState.listening);
     } finally {
       _processingChunk = false;
+      _drainQueue();
+    }
+  }
+
+  void _drainQueue() {
+    if (_pendingChunks.isNotEmpty && !_processingChunk && _callActive) {
+      final next = _pendingChunks.removeFirst();
+      _processChunk(next);
     }
   }
 
   void _onCallEnded() {
+    _callActive = false;
+    _pendingChunks.clear();
+
+    // Push callEnded BEFORE clearing so the UI receives the transcript
+    _push(CallAnalysisState.callEnded);
+
     if (!_scamDetectedDuringCall) {
       _accumulatedTranscript = '';
       _currentCallerNumber = '';
     }
-    _push(CallAnalysisState.callEnded);
   }
 
   void _push(CallAnalysisState state, {AnalysisResult? result}) {

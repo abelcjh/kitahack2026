@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -24,6 +25,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   late final CallService _callService;
   late final ScamNumberService _scamNumberService;
   late final AudioRecorder _recorder;
+  StreamSubscription<CallAnalysisUpdate>? _callSubscription;
+  bool _activeCallScreenVisible = false;
 
   bool _isCallScreeningActive = false;
   bool _hasOverlayPermission = false;
@@ -47,7 +50,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
 
     _callService.startListening();
-    _callService.stream.listen(_onCallUpdate);
+    _callSubscription = _callService.stream.listen(_onCallUpdate);
 
     _loadState();
   }
@@ -72,18 +75,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   void _onCallUpdate(CallAnalysisUpdate update) {
     if (!mounted) return;
-    if (update.state == CallAnalysisState.callStarted ||
-        update.state == CallAnalysisState.listening ||
-        update.state == CallAnalysisState.transcribing ||
-        update.state == CallAnalysisState.analyzing) {
-      Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => ActiveCallScreen(callService: _callService),
-      ));
+
+    if (update.state == CallAnalysisState.callEnded ||
+        update.state == CallAnalysisState.idle) {
+      _activeCallScreenVisible = false;
+      return;
+    }
+
+    if (!_activeCallScreenVisible &&
+        (update.state == CallAnalysisState.callStarted ||
+            update.state == CallAnalysisState.listening ||
+            update.state == CallAnalysisState.transcribing ||
+            update.state == CallAnalysisState.analyzing)) {
+      _activeCallScreenVisible = true;
+      Navigator.of(context)
+          .push(MaterialPageRoute(
+            builder: (_) => ActiveCallScreen(callService: _callService),
+          ))
+          .then((_) => _activeCallScreenVisible = false);
     }
   }
 
   @override
   void dispose() {
+    _callSubscription?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _callService.dispose();
     _recorder.dispose();

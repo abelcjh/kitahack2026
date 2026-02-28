@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import '../services/call_service.dart';
 import '../widgets/transcript_card.dart';
@@ -16,6 +17,7 @@ class ActiveCallScreen extends StatefulWidget {
 class _ActiveCallScreenState extends State<ActiveCallScreen>
     with SingleTickerProviderStateMixin {
   late final AnimationController _pulseController;
+  StreamSubscription<CallAnalysisUpdate>? _streamSubscription;
   CallAnalysisUpdate? _latest;
   bool _navigated = false;
 
@@ -27,7 +29,7 @@ class _ActiveCallScreenState extends State<ActiveCallScreen>
       duration: const Duration(milliseconds: 800),
     )..repeat(reverse: true);
 
-    widget.callService.stream.listen(_onUpdate);
+    _streamSubscription = widget.callService.stream.listen(_onUpdate);
   }
 
   void _onUpdate(CallAnalysisUpdate update) {
@@ -56,6 +58,7 @@ class _ActiveCallScreenState extends State<ActiveCallScreen>
 
   @override
   void dispose() {
+    _streamSubscription?.cancel();
     _pulseController.dispose();
     super.dispose();
   }
