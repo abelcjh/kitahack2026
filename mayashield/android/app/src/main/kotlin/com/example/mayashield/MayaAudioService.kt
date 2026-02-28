@@ -6,6 +6,7 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -23,6 +24,7 @@ class MayaAudioService : Service() {
 
     // This listens for the moment you hang up the phone
     private val phoneStateListener = object : PhoneStateListener() {
+        @Deprecated("Deprecated in Java")
         override fun onCallStateChanged(state: Int, phoneNumber: String?) {
             if (state == TelephonyManager.CALL_STATE_IDLE) {
                 stopSelf() // Kills the recording when the call ends
@@ -35,7 +37,7 @@ class MayaAudioService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val callerNumber = intent?.getStringExtra("incoming_number") ?: "Unknown"
 
-        // 1. Create the persistent background notification (Required by Android)
+        // 1. Create the persistent background notification
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel("maya_audio", "Call Screening", NotificationManager.IMPORTANCE_LOW)
             (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).createNotificationChannel(channel)
@@ -45,7 +47,17 @@ class MayaAudioService : Service() {
             .setContentText("Listening for scams...")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .build()
-        startForeground(1, notification)
+
+        // ⚠️ CRITICAL FIX FOR ANDROID 14+ MICROPHONE CRASH
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE)
+            } else {
+                startForeground(1, notification)
+            }
+        } catch (e: Exception) {
+            startForeground(1, notification) // Fallback
+        }
 
         // 2. Listen for call end
         telephonyManager = getSystemService(Context.TELEPHONY_SERVICE) as TelephonyManager
@@ -70,25 +82,35 @@ class MayaAudioService : Service() {
         val bufferSize = AudioRecord.getMinBufferSize(sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
         audioRecord = AudioRecord(MediaRecorder.AudioSource.MIC, sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT, bufferSize)
 
-        audioRecord?.startRecording()
-        isRecording = true
+        try {
+            audioRecord?.startRecording()
+            isRecording = true
 
-        Thread {
-            val buffer = ByteArray(bufferSize)
-            while (isRecording) {
-                val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
-                if (read > 0) {
-                    val chunk = buffer.copyOf(read)
-                    MainActivity.sendFlutterEvent(mapOf("type" to "audioChunk", "data" to chunk))
+            Thread {
+                val buffer = ByteArray(bufferSize)
+                while (isRecording) {
+                    val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
+                    if (read > 0) {
+                        val chunk = buffer.copyOf(read)
+                        MainActivity.sendFlutterEvent(mapOf("type" to "audioChunk", "data" to chunk))
+                    } else {
+                        // If audio is blocked momentarily, sleep briefly to avoid freezing
+                        Thread.sleep(100)
+                    }
                 }
-            }
-        }.start()
+            }.start()
+        } catch (e: Exception) {
+            stopSelf() // Kill safely if we can't access mic
+        }
     }
 
     override fun onDestroy() {
         isRecording = false
-        audioRecord?.stop()
-        audioRecord?.release()
+        try {
+            audioRecord?.stop()
+            audioRecord?.release()
+        } catch (e: Exception) {}
+        
         telephonyManager?.listen(phoneStateListener, PhoneStateListener.LISTEN_NONE)
         MainActivity.sendFlutterEvent(mapOf("type" to "callEnded"))
         super.onDestroy()

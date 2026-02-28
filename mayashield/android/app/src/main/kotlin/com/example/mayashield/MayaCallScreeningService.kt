@@ -21,10 +21,15 @@ class MayaCallScreeningService : CallScreeningService() {
         val intent = Intent(applicationContext, MayaAudioService::class.java)
         intent.putExtra("incoming_number", callerNumber)
         
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+        } catch (e: Exception) {
+            // Failsafe catch to prevent telecom crash
+            startService(intent) 
         }
     }
 }
