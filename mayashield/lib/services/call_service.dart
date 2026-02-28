@@ -62,9 +62,16 @@ class CallService {
   String _currentCallerNumber = '';
   bool _scamDetectedDuringCall = false;
   int _chunkIndex = 0;
-  bool _processingChunk = false;
   bool _callActive = false;
-  final Queue<Uint8List> _pendingChunks = Queue<Uint8List>();
+
+  // STT pipeline (runs per-chunk, as fast as possible)
+  bool _transcribing = false;
+  final Queue<Uint8List> _sttQueue = Queue<Uint8List>();
+
+  // Analysis pipeline (runs independently, every N transcribed chunks)
+  bool _analyzing = false;
+  int _chunksSinceLastAnalysis = 0;
+  static const int _analyzeEveryNChunks = 2;
 
   final _updateController = StreamController<CallAnalysisUpdate>.broadcast();
   Stream<CallAnalysisUpdate> get stream => _updateController.stream;
@@ -92,6 +99,7 @@ class CallService {
 
   void dispose() {
     stopListening();
+    _stt.dispose();
     _updateController.close();
   }
 
@@ -121,88 +129,115 @@ class CallService {
     _currentCallerNumber = callerNumber;
     _scamDetectedDuringCall = false;
     _chunkIndex = 0;
-    _processingChunk = false;
+    _transcribing = false;
+    _analyzing = false;
     _callActive = true;
-    _pendingChunks.clear();
+    _chunksSinceLastAnalysis = 0;
+    _sttQueue.clear();
     _push(CallAnalysisState.callStarted);
   }
 
-  // ── Audio chunk queue ─────────────────────────────────────────────────────
+  // ── STT pipeline (fast, per-chunk) ────────────────────────────────────────
   void _enqueueChunk(Uint8List wavBytes) {
     if (!_callActive) return;
-
-    if (_processingChunk) {
-      _pendingChunks.addLast(wavBytes);
-    } else {
-      _processChunk(wavBytes);
-    }
+    _sttQueue.addLast(wavBytes);
+    _processNextSTT();
   }
 
-  Future<void> _processChunk(Uint8List wavBytes) async {
-    if (!_callActive) return;
-    _processingChunk = true;
+  Future<void> _processNextSTT() async {
+    if (_transcribing || _sttQueue.isEmpty || !_callActive) return;
+    _transcribing = true;
 
+    final wavBytes = _sttQueue.removeFirst();
     _chunkIndex++;
     _push(CallAnalysisState.transcribing);
 
     try {
-      final chunkTranscript = await _stt.transcribeAudio(wavBytes);
+      final text = await _stt.transcribeAudio(wavBytes);
 
-      if (chunkTranscript.isNotEmpty) {
-        _accumulatedTranscript = '$_accumulatedTranscript $chunkTranscript'.trim();
-        _push(CallAnalysisState.analyzing);
+      if (text.isNotEmpty) {
+        _accumulatedTranscript =
+            '$_accumulatedTranscript $text'.trim();
+        _chunksSinceLastAnalysis++;
+      }
+      _push(CallAnalysisState.listening);
+    } catch (e, st) {
+      print("STT error: $e");
+      print(st);
+      _push(CallAnalysisState.listening);
+    } finally {
+      _transcribing = false;
 
-        if (!_scamDetectedDuringCall) {
-          final result = await _gemini.analyzeTranscript(_accumulatedTranscript);
+      // Trigger Gemini analysis if enough new content has been transcribed
+      if (_chunksSinceLastAnalysis >= _analyzeEveryNChunks &&
+          !_analyzing &&
+          !_scamDetectedDuringCall &&
+          _callActive) {
+        _runAnalysis();
+      }
 
-          if (result.isScam) {
-            _scamDetectedDuringCall = true;
-            _push(CallAnalysisState.scamDetected, result: result);
+      // Continue draining the STT queue
+      _processNextSTT();
+    }
+  }
 
-            await _methodChannel.invokeMethod('scamDetected', {
-              'reason': result.reason,
-              'number': _currentCallerNumber,
-            });
+  // ── Analysis pipeline (independent, less frequent) ────────────────────────
+  Future<void> _runAnalysis() async {
+    if (_analyzing ||
+        _accumulatedTranscript.isEmpty ||
+        _scamDetectedDuringCall ||
+        !_callActive) return;
 
-            unawaited(_scamNumberService.addScamNumber(
-              _currentCallerNumber,
-              result.reason,
-            ));
+    _analyzing = true;
+    _chunksSinceLastAnalysis = 0;
+    _push(CallAnalysisState.analyzing);
 
-            unawaited(_reportService.reportScam(
-              transcript: _accumulatedTranscript,
-              callerNumber: _currentCallerNumber,
-              result: result,
-            ));
-          } else {
-            _push(CallAnalysisState.listening);
-          }
-        }
+    try {
+      final result =
+          await _gemini.analyzeTranscript(_accumulatedTranscript);
+
+      if (!_callActive) return;
+
+      if (result.isScam) {
+        _scamDetectedDuringCall = true;
+        _push(CallAnalysisState.scamDetected, result: result);
+
+        await _methodChannel.invokeMethod('scamDetected', {
+          'reason': result.reason,
+          'number': _currentCallerNumber,
+        });
+
+        unawaited(_scamNumberService.addScamNumber(
+          _currentCallerNumber,
+          result.reason,
+        ));
+
+        unawaited(_reportService.reportScam(
+          transcript: _accumulatedTranscript,
+          callerNumber: _currentCallerNumber,
+          result: result,
+        ));
       } else {
         _push(CallAnalysisState.listening);
       }
-    } catch (e, stacktrace) {
-      print("STT error: $e");
-      print(stacktrace);
+    } catch (e) {
+      print("Analysis error: $e");
       _push(CallAnalysisState.listening);
     } finally {
-      _processingChunk = false;
-      _drainQueue();
+      _analyzing = false;
     }
   }
 
-  void _drainQueue() {
-    if (_pendingChunks.isNotEmpty && !_processingChunk && _callActive) {
-      final next = _pendingChunks.removeFirst();
-      _processChunk(next);
-    }
-  }
-
+  // ── Call ended ────────────────────────────────────────────────────────────
   void _onCallEnded() {
     _callActive = false;
-    _pendingChunks.clear();
+    _sttQueue.clear();
 
-    // Push callEnded BEFORE clearing so the UI receives the transcript
+    // Fire-and-forget final analysis on whatever transcript we have
+    if (_accumulatedTranscript.isNotEmpty && !_scamDetectedDuringCall) {
+      _runAnalysis();
+    }
+
     _push(CallAnalysisState.callEnded);
 
     if (!_scamDetectedDuringCall) {
@@ -236,7 +271,9 @@ class CallService {
 
   Future<bool> isCallScreeningActive() async {
     try {
-      return await _methodChannel.invokeMethod<bool>('isCallScreeningRoleActive') ?? false;
+      return await _methodChannel
+              .invokeMethod<bool>('isCallScreeningRoleActive') ??
+          false;
     } catch (_) {
       return false;
     }

@@ -5,21 +5,26 @@ import 'package:googleapis_auth/auth_io.dart';
 import '../config/constants.dart';
 
 class SpeechToTextService {
-  /// Transcribes a WAV audio chunk using Google STT V2 Chirp 3.
+  AutoRefreshingAuthClient? _cachedClient;
+
+  Future<AutoRefreshingAuthClient> _getAuthClient() async {
+    if (_cachedClient != null) return _cachedClient!;
+
+    final accountJson = await rootBundle.loadString(
+      'assets/kitahack-2026-488510-1741d7599bd5.json',
+    );
+    final credentials = ServiceAccountCredentials.fromJson(accountJson);
+    final scopes = ['https://www.googleapis.com/auth/cloud-platform'];
+
+    _cachedClient = await clientViaServiceAccount(credentials, scopes);
+    return _cachedClient!;
+  }
+
   Future<String> transcribeAudio(Uint8List wavBytes) async {
     if (wavBytes.isEmpty) return '';
 
     final base64Audio = base64Encode(wavBytes);
-
-    // 1. Load the Service Account JSON you just added to the assets folder
-    final accountJson = await rootBundle.loadString('assets/kitahack-2026-488510-1741d7599bd5.json'); // Check filename!
-    final credentials = ServiceAccountCredentials.fromJson(accountJson);
-    
-    // 2. Define the exact Cloud security clearance we need
-    final scopes = ['https://www.googleapis.com/auth/cloud-platform'];
-
-    // 3. Generate the secure Google Auth Client (Replaces standard http client)
-    final authClient = await clientViaServiceAccount(credentials, scopes);
+    final authClient = await _getAuthClient();
 
     final body = jsonEncode({
       'config': {
@@ -31,7 +36,6 @@ class SpeechToTextService {
     });
 
     try {
-      // 4. Send the request using the secure authClient
       final response = await authClient
           .post(
             Uri.parse(AppConstants.sttEndpoint),
@@ -43,15 +47,13 @@ class SpeechToTextService {
       if (response.statusCode == 200) {
         return _parseTranscript(response.body);
       } else {
-        // Fallback: retry with auto language detection, passing the secure client
         return await _retryWithAutoLanguage(base64Audio, authClient);
       }
     } catch (e) {
-      print('STT V2 Error: $e'); // Helpful for hackathon debugging
+      print('STT V2 Error: $e');
+      _cachedClient?.close();
+      _cachedClient = null;
       return '';
-    } finally {
-      // 5. Always close the client to prevent memory leaks during long phone calls
-      authClient.close(); 
     }
   }
 
@@ -72,8 +74,10 @@ class SpeechToTextService {
     }
   }
 
-  // Notice we now pass the authClient into the retry function as well
-  Future<String> _retryWithAutoLanguage(String base64Audio, AuthClient authClient) async {
+  Future<String> _retryWithAutoLanguage(
+    String base64Audio,
+    AutoRefreshingAuthClient authClient,
+  ) async {
     try {
       final body = jsonEncode({
         'config': {
@@ -99,5 +103,10 @@ class SpeechToTextService {
     } catch (_) {
       return '';
     }
+  }
+
+  void dispose() {
+    _cachedClient?.close();
+    _cachedClient = null;
   }
 }

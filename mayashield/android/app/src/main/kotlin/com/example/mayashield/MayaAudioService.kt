@@ -29,7 +29,7 @@ class MayaAudioService : Service() {
         private const val SAMPLE_RATE = 16000
         private const val CHANNELS = 1
         private const val BITS_PER_SAMPLE = 16
-        private const val CHUNK_DURATION_MS = 5000L
+        private const val CHUNK_DURATION_MS = 10000L
     }
 
     private val pcmBuffer = ByteArrayOutputStream()
