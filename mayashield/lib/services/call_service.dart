@@ -69,18 +69,15 @@ class CallService {
   StreamSubscription? _nativeSubscription;
 
   // ── Lifecycle ──────────────────────────────────────────────────────────────
-
-  /// Start listening to events from the Android CallRecordingService.
   void startListening() {
     _nativeSubscription?.cancel();
     _nativeSubscription = _eventChannel
         .receiveBroadcastStream()
         .listen(_onNativeEvent, onError: (_) {});
 
-    // Also listen for permission update callbacks from MainActivity.onResume
     _methodChannel.setMethodCallHandler((call) async {
       if (call.method == 'onPermissionsUpdate') {
-        // Handled by PermissionService -- ignore here
+        // Handled by PermissionService
       }
     });
   }
@@ -96,7 +93,6 @@ class CallService {
   }
 
   // ── Event handling ─────────────────────────────────────────────────────────
-
   void _onNativeEvent(dynamic event) {
     if (event is! Map) return;
     final type = event['type'] as String? ?? '';
@@ -104,13 +100,16 @@ class CallService {
     switch (type) {
       case 'callStarted':
         _onCallStarted(event['callerNumber'] as String? ?? '');
+        break;
       case 'audioChunk':
         final data = event['data'];
         if (data is Uint8List) _onAudioChunk(data);
+        break;
       case 'callEnded':
         final data = event['data'];
         if (data is Uint8List) _onAudioChunk(data, isFinalChunk: true);
         _onCallEnded();
+        break;
     }
   }
 
@@ -126,7 +125,6 @@ class CallService {
     Uint8List wavBytes, {
     bool isFinalChunk = false,
   }) async {
-    // Queue chunks -- don't process concurrently
     if (_processingChunk && !isFinalChunk) return;
     _processingChunk = true;
 
@@ -138,33 +136,28 @@ class CallService {
       final chunkTranscript = await _stt.transcribeAudio(wavBytes);
 
       if (chunkTranscript.isNotEmpty) {
-        // 2. Append to full context (Gemini always sees the complete conversation)
-        _accumulatedTranscript =
-            '$_accumulatedTranscript $chunkTranscript'.trim();
+        // 2. Append to full context
+        _accumulatedTranscript = '$_accumulatedTranscript $chunkTranscript'.trim();
         _push(CallAnalysisState.analyzing);
 
-        // 3. Analyze full accumulated transcript (skip if scam already detected)
+        // 3. Analyze transcript
         if (!_scamDetectedDuringCall) {
-          final result =
-              await _gemini.analyzeTranscript(_accumulatedTranscript);
+          final result = await _gemini.analyzeTranscript(_accumulatedTranscript);
 
           if (result.isScam) {
             _scamDetectedDuringCall = true;
             _push(CallAnalysisState.scamDetected, result: result);
 
-            // 4a. Trigger native overlay
             await _methodChannel.invokeMethod('scamDetected', {
               'reason': result.reason,
               'number': _currentCallerNumber,
             });
 
-            // 4b. Add number to community scam DB (fire-and-forget)
             unawaited(_scamNumberService.addScamNumber(
               _currentCallerNumber,
               result.reason,
             ));
 
-            // 4c. Save full report to Firestore
             unawaited(_reportService.reportScam(
               transcript: _accumulatedTranscript,
               callerNumber: _currentCallerNumber,
@@ -175,7 +168,6 @@ class CallService {
           }
         }
       } else {
-        // If Google returns empty string but no error
         print("⚠️ STT SUCCESS, BUT TRANSCRIPT WAS EMPTY.");
         _push(CallAnalysisState.listening);
       }
@@ -187,10 +179,10 @@ class CallService {
     } finally {
       _processingChunk = false;
     }
+  }
 
   void _onCallEnded() {
     if (!_scamDetectedDuringCall) {
-      // SAFE: discard everything -- no data stored
       _accumulatedTranscript = '';
       _currentCallerNumber = '';
     }
@@ -209,7 +201,6 @@ class CallService {
   }
 
   // ── Permission helpers ─────────────────────────────────────────────────────
-
   Future<bool> hasOverlayPermission() async {
     return await Permission.systemAlertWindow.isGranted;
   }
@@ -217,7 +208,6 @@ class CallService {
   Future<void> requestOverlayPermission() async {
     final status = await Permission.systemAlertWindow.status;
     if (!status.isGranted) {
-      // This physically opens the "Draw over other apps" Android settings screen
       await Permission.systemAlertWindow.request();
     }
   }
@@ -242,5 +232,4 @@ class CallService {
   bool get scamDetected => _scamDetectedDuringCall;
 }
 
-// Suppress "unawaited_futures" for fire-and-forget calls
 void unawaited(Future<void> future) {}
